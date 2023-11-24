@@ -1,9 +1,12 @@
-﻿using System;
+﻿using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using System;
+using System.Collections.Generic;
 using System.IO;
-using System.Text.RegularExpressions;
 using System.Text;
-using System.Xml.Linq;
+using System.Text.RegularExpressions;
 using System.Xml;
+using System.Xml.Linq;
 
 namespace ProterOver
 {
@@ -13,6 +16,14 @@ namespace ProterOver
         /// 当前文件的运行目录
         /// </summary>
         public static string CurrentDirectory => Directory.GetCurrentDirectory();
+
+        static int count;
+
+        static List<string> oldNmmos = new List<string>();
+
+        static List<string> ifyNmmos = new List<string>();
+
+        static List<string> issueFillCodes = new List<string>();
 
         string filePath => Path.Combine(CurrentDirectory, "Config.xml");
 
@@ -78,18 +89,95 @@ namespace ProterOver
         {
             PorterMain porterMain = new PorterMain();
             porterMain.Load();
-
+            List<string> files = new List<string>();
             string directoryPath = instance.inportPath.Value;
-            ReplaceCodeInFiles(directoryPath);
+            Utils.TraverseFolder(directoryPath, files);
+            Console.WriteLine($"找到{files.Count}个.cs文件");
+            Console.WriteLine("输入目标功能：\n-1 索引替换\n-2递归报警");
+            if (Console.Read() == 1)
+            {
+                ReplaceCodeInFiles(files);
+                Console.WriteLine($"修改完成，一共修改了 {count} 处代码，按下任意键查看修改的文本");
+                Console.ReadKey();
+                foreach (string a in ifyNmmos)
+                {
+                    Console.WriteLine($"{oldNmmos} --> {ifyNmmos}");
+                }
+                Console.ReadKey();
+                using (FileStream createFile = new FileStream(instance.outPath.Value + "Ify.txt", FileMode.Create))
+                using (StreamWriter writer = new StreamWriter(createFile))
+                {
+                    foreach (string item in ifyNmmos)
+                    {
+                        // 写入每个条目，并在条目之间添加换行
+                        writer.WriteLine(item);
+                    }
+                }
+
+                Console.WriteLine("修改对比文档已经创建: " + instance.outPath.Value);
+            }
+            else
+            {
+                foreach (string code in files)
+                {
+                    Console.WriteLine($"当前目标文件: {code}");
+                    string fileContent = File.ReadAllText(code);
+                    bool issueKeys = AnalyzeCode(fileContent, code);
+                    Console.WriteLine("——————————————————————");
+                }
+                Console.WriteLine("扫描完成，按下任意键查看项目危险代码排查报告...");
+                Console.ReadKey();
+                Console.WriteLine("——————————————————————");
+                foreach (string leng in issueFillCodes)
+                {
+                    Console.WriteLine(leng);
+                }
+                Console.ReadKey();
+                using (FileStream createFile = new FileStream(instance.outPath.Value + "IssueCode.txt", FileMode.Create))
+                using (StreamWriter writer = new StreamWriter(createFile))
+                {
+                    foreach (string leng in issueFillCodes)
+                    {
+                        // 写入每个条目，并在条目之间添加换行
+                        writer.WriteLine(leng);
+                    }
+                }
+                Console.WriteLine($"文件报告已经生成----> {instance.outPath.Value + "IssueCode.txt"}");
+            }
             Console.ReadKey();
         }
 
-        static void ReplaceCodeInFiles(string directoryPath)
+        static bool AnalyzeCode(string fileContent, string targetPath)
         {
-            var csFiles = Directory.GetFiles(directoryPath, "*.cs", SearchOption.AllDirectories);
+            SyntaxTree syntaxTree = CSharpSyntaxTree.ParseText(fileContent);
+            var root = syntaxTree.GetRoot();
+            var analyzer = new RecursiveCallAnalyzer();
+            analyzer.Visit(root);
+            var issues = analyzer.GetIssues();
 
-            foreach (var csFile in csFiles)
+            if (issues.Count > 0)
             {
+                issueFillCodes.Add($"怀疑文件：{targetPath}");
+                foreach (var issue in issues)
+                {
+                    string issueLang = $"以下代码疑似发生了无限递归 {issue.FilePath}, 在第 {issue.LineNumber} 行";
+                    Console.WriteLine(issueLang);
+                    issueFillCodes.Add(issueLang);
+                }
+                issueFillCodes.Add("——————————————————————");
+            }
+            else
+            {
+                Console.WriteLine("这个文件是安全的");
+            }
+            return issues.Count > 0;
+        }
+
+        static void ReplaceCodeInFiles(List<string> directoryPath)
+        {
+            foreach (var csFile in directoryPath)
+            {
+                Console.WriteLine($"当前目标文件: {csFile}");
                 string fileContent = File.ReadAllText(csFile);
 
                 // 使用正则表达式替换模式，传递自定义的 MatchEvaluator 方法
@@ -99,6 +187,7 @@ namespace ProterOver
                 // 检查是否有代码发生了修改
                 if (newFileContent != fileContent)
                 {
+                    Console.WriteLine($"正在写入....");
                     // 将修改后的内容写回文件
                     File.WriteAllText(csFile, newFileContent, Encoding.UTF8);
                     Console.WriteLine($"File updated: {csFile}");
@@ -119,29 +208,18 @@ namespace ProterOver
                 typeName = "Dust";
             if (typeName == "ModItem")
                 typeName = "Item";
-
+            if (typeName == "ModTile")
+                typeName = "Tile";
+            if (typeName == "ModWall")
+                typeName = "Wall";
+            if (typeName == "ModBuff")
+                typeName = "Buff";
+            Console.WriteLine($"--> ModContent.{typeName}Type<{stringValue}>()");
+            count++;
+            oldNmmos.Add($"Mod.Find<{typeName}>(\"{stringValue}\").Type");
+            ifyNmmos.Add($"ModContent.{typeName}Type<{stringValue}>()");
             // 返回替换后的字符串
             return $"ModContent.{typeName}Type<{stringValue}>()";
-        }
-
-        static void DrawProgressBar(int currentStep, int totalSteps)
-        {
-            Console.CursorVisible = false;
-            int barLength = 30;
-            int progress = (int)((double)currentStep / totalSteps * barLength);
-
-            Console.Write("[");
-
-            for (int i = 0; i < barLength; i++)
-            {
-                if (i < progress)
-                    Console.Write("=");
-                else
-                    Console.Write(" ");
-            }
-
-            Console.Write($"] {currentStep}/{totalSteps}");
-            Console.SetCursorPosition(0, Console.CursorTop);
         }
     }
 }

@@ -25,6 +25,10 @@ namespace ProterOver
 
         static List<string> issueFillCodes = new List<string>();
 
+        static int issueFillCount;
+
+        static int issueFillCodeLineCount;
+
         string filePath => Path.Combine(CurrentDirectory, "Config.xml");
 
         XDocument doc;
@@ -93,7 +97,7 @@ namespace ProterOver
             string directoryPath = instance.inportPath.Value;
             Utils.TraverseFolder(directoryPath, files);
             Console.WriteLine($"找到{files.Count}个.cs文件");
-            Console.WriteLine("输入目标功能：\n-1 索引替换\n-2递归报警");
+            Console.WriteLine("输入目标功能：\n-1 索引替换\n-2 递归报警");
             if (Console.Read() == 1)
             {
                 ReplaceCodeInFiles(files);
@@ -125,7 +129,8 @@ namespace ProterOver
                     bool issueKeys = AnalyzeCode(fileContent, code);
                     Console.WriteLine("——————————————————————");
                 }
-                Console.WriteLine("扫描完成，按下任意键查看项目危险代码排查报告...");
+                string issueReportText1 = $"总共有{issueFillCount}个.cs文件中的{issueFillCodeLineCount}行代码引发了分析器的怀疑";
+                Console.WriteLine($"扫描完成，{issueReportText1} \n按下任意键查看项目危险代码排查报告...");
                 Console.ReadKey();
                 Console.WriteLine("——————————————————————");
                 foreach (string leng in issueFillCodes)
@@ -141,6 +146,7 @@ namespace ProterOver
                         // 写入每个条目，并在条目之间添加换行
                         writer.WriteLine(leng);
                     }
+                    writer.WriteLine(issueReportText1);
                 }
                 Console.WriteLine($"文件报告已经生成----> {instance.outPath.Value + "IssueCode.txt"}");
             }
@@ -158,11 +164,13 @@ namespace ProterOver
             if (issues.Count > 0)
             {
                 issueFillCodes.Add($"怀疑文件：{targetPath}");
+                issueFillCount++;
                 foreach (var issue in issues)
                 {
                     string issueLang = $"以下代码疑似发生了无限递归 {issue.FilePath}, 在第 {issue.LineNumber} 行";
                     Console.WriteLine(issueLang);
                     issueFillCodes.Add(issueLang);
+                    issueFillCodeLineCount++;
                 }
                 issueFillCodes.Add("——————————————————————");
             }
